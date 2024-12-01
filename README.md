@@ -49,5 +49,4 @@ The main logic of the self-balancing robot is contained within the `self_balanci
 
 The PID constants (`Kp`, `Ki`, `Kd`) can be tuned based on the robot's response to improve performance.
 
-```cpp
-// Code from the provided sketch
+
