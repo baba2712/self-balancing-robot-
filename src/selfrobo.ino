@@ -1,71 +1,74 @@
 #include <Wire.h>
-#include <MPU6050.h>
-#include <PID_v1.h>
+#include <Servo.h>
 
-#define motorPin1 3
-#define motorPin2 4
-#define motorPin3 5
-#define motorPin4 6
+const int motor1Pin1 = 3;
+const int motor1Pin2 = 5;
+const int motor2Pin1 = 6;
+const int motor2Pin2 = 9;
 
-MPU6050 mpu;
-
-double input, output, setpoint = 0;
-double Kp = 35, Ki = 20, Kd = 10;
-
-double accelAngle, gyroAngle, angle;
-
-PID myPID(&input, &output, &setpoint, Kp, Ki, Kd, DIRECT);
+const int MPU = 0x68;
+float accX, accY, accZ;
+float gyroX, gyroY, gyroZ;
+float angleX, angleY;
+float baseAngle = 0;
+float error, prevError, totalError, pidOutput;
+float kp = 12, ki = 0.005, kd = 1.5;
+unsigned long prevTime;
 
 void setup() {
-  Serial.begin(9600);
-  Wire.begin();
-  mpu.initialize();
-
-  if (!mpu.testConnection()) {
-    Serial.println("MPU6050 connection failed!");
-    while (1);
-  }
-
-  myPID.SetMode(ACTIVE);
-  myPID.SetOutputLimits(-255, 255);
-  myPID.SetTunings(Kp, Ki, Kd);
-  
-  pinMode(motorPin1, OUTPUT);
-  pinMode(motorPin2, OUTPUT);
-  pinMode(motorPin3, OUTPUT);
-  pinMode(motorPin4, OUTPUT);
+    pinMode(motor1Pin1, OUTPUT);
+    pinMode(motor1Pin2, OUTPUT);
+    pinMode(motor2Pin1, OUTPUT);
+    pinMode(motor2Pin2, OUTPUT);
+    
+    Wire.begin();
+    Wire.beginTransmission(MPU);
+    Wire.write(0x6B);
+    Wire.write(0);
+    Wire.endTransmission(true);
+    
+    prevTime = millis();
 }
 
 void loop() {
-  int16_t ax, ay, az, gx, gy, gz;
-  mpu.getAcceleration(&ax, &ay, &az);
-  mpu.getRotation(&gx, &gy, &gz);
-  
-  accelAngle = atan2(ay, az) * 180.0 / PI;
-  gyroAngle = gx / 131.0;
-
-  angle = 0.98 * (angle + gyroAngle * 0.01) + 0.02 * accelAngle;
-
-  input = angle;
-  myPID.Compute();
-
-  if (output > 0) {
-    analogWrite(motorPin1, output);
-    analogWrite(motorPin2, 0);
-    analogWrite(motorPin3, 0);
-    analogWrite(motorPin4, -output);
-  } else {
-    analogWrite(motorPin1, 0);
-    analogWrite(motorPin2, -output);
-    analogWrite(motorPin3, -output);
-    analogWrite(motorPin4, 0);
-  }
-
-  Serial.print("Angle: ");
-  Serial.print(angle);
-  Serial.print(" PID Output: ");
-  Serial.println(output);
-
-  delay(10);
-}
-
+    unsigned long currentTime = millis();
+    float elapsedTime = (currentTime - prevTime) / 1000.0;
+    prevTime = currentTime;
+    
+    Wire.beginTransmission(MPU);
+    Wire.write(0x3B);
+    Wire.endTransmission(false);
+    Wire.requestFrom(MPU, 14, true);
+    
+    accX = (Wire.read() << 8 | Wire.read()) / 16384.0;
+    accY = (Wire.read() << 8 | Wire.read()) / 16384.0;
+    accZ = (Wire.read() << 8 | Wire.read()) / 16384.0;
+    gyroX = (Wire.read() << 8 | Wire.read()) / 131.0;
+    gyroY = (Wire.read() << 8 | Wire.read()) / 131.0;
+    gyroZ = (Wire.read() << 8 | Wire.read()) / 131.0;
+    
+    float angleAccX = atan2(accY, accZ) * 180 / 3.14159;
+    angleX = 0.98 * (angleX + gyroX * elapsedTime) + 0.02 * angleAccX;
+    
+    error = baseAngle - angleX;
+    totalError += error * elapsedTime;
+    float rateError = (error - prevError) / elapsedTime;
+    prevError = error;
+    
+    pidOutput = kp * error + ki * totalError + kd * rateError;
+    
+    if (pidOutput > 255) pidOutput = 255;
+    if (pidOutput < -255) pidOutput = -255;
+    
+    if (pidOutput > 0) {
+        analogWrite(motor1Pin1, pidOutput);
+        analogWrite(motor1Pin2, 0);
+        analogWrite(motor2Pin1, pidOutput);
+        analogWrite(motor2Pin2, 0);
+    } else {
+        analogWrite(motor1Pin1, 0);
+        analogWrite(motor1Pin2, -pidOutput);
+        analogWrite(motor2Pin1, 0);
+        analogWrite(motor2Pin2, -pidOutput);
+    }
+} 
